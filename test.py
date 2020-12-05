@@ -15,7 +15,7 @@ from utils.convert_state import convert_state_dict
 def parse_args():
     parser = ArgumentParser(description='Efficient semantic segmentation')
     parser.add_argument('--model', default="ENet", help="model name: (default ENet)")
-    parser.add_argument('--dataset', default="camvid", help="dataset: cityscapes or camvid")
+    parser.add_argument('--dataset', default="camvid", help="dataset: cityscapes, camvid or bdd100k")
     parser.add_argument('--num_workers', type=int, default=1, help="the number of parallel threads")
     parser.add_argument('--batch_size', type=int, default=1,
                         help=" the batch_size is set to 1 when evaluating or testing")
@@ -177,8 +177,10 @@ if __name__ == '__main__':
         args.classes = 19
     elif args.dataset == 'camvid':
         args.classes = 11
+    elif args.dataset == 'bdd100k':
+        args.classes = 3
     else:
         raise NotImplementedError(
-            "This repository now supports two datasets: cityscapes and camvid, %s is not included" % args.dataset)
+            "This repository now supports three datasets: cityscapes, camvid and bdd100k, %s is not included" % args.dataset)
 
     test_model(args)

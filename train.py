@@ -37,7 +37,7 @@ def parse_args():
     parser = ArgumentParser(description='Efficient semantic segmentation')
     # model and dataset
     parser.add_argument('--model', type=str, default="ENet", help="model name: (default ENet)")
-    parser.add_argument('--dataset', type=str, default="camvid", help="dataset: cityscapes or camvid")
+    parser.add_argument('--dataset', type=str, default="camvid", help="dataset: cityscapes, camvid or bdd100k")
     parser.add_argument('--input_size', type=str, default="360,480", help="input size of model")
     parser.add_argument('--num_workers', type=int, default=4, help=" the number of parallel threads")
     parser.add_argument('--classes', type=int, default=11,
@@ -125,9 +125,11 @@ def train_model(args):
     # define loss function, respectively
     weight = torch.from_numpy(datas['classWeights'])
 
-    if args.dataset == 'camvid':
+    if args.dataset == 'camvid' or args.dataset == 'bdd100k':
         criteria = CrossEntropyLoss2d(weight=weight, ignore_label=ignore_label)
     elif args.dataset == 'camvid' and args.use_label_smoothing:
+        criteria = CrossEntropyLoss2dLabelSmooth(weight=weight, ignore_label=ignore_label)
+    elif args.dataset == 'bdd100k' and args.use_label_smoothing:
         criteria = CrossEntropyLoss2dLabelSmooth(weight=weight, ignore_label=ignore_label)
 
     elif args.dataset == 'cityscapes' and args.use_ohem:
@@ -141,7 +143,7 @@ def train_model(args):
         criteria = FocalLoss2d(weight=weight, ignore_index=ignore_label)
     else:
         raise NotImplementedError(
-            "This repository now supports two datasets: cityscapes and camvid, %s is not included" % args.dataset)
+            "This repository now supports three datasets: cityscapes, camvid and bdd100k, %s is not included" % args.dataset)
 
     if args.cuda:
         criteria = criteria.cuda()
@@ -241,7 +243,7 @@ def train_model(args):
         state = {"epoch": epoch + 1, "model": model.state_dict()}
 
         # Individual Setting for save model !!!
-        if args.dataset == 'camvid':
+        if args.dataset == 'camvid' or args.dataset == 'bdd100k':
             torch.save(state, model_file_name)
         elif args.dataset == 'cityscapes':
             if epoch >= args.max_epochs - 10:
@@ -393,9 +395,13 @@ if __name__ == '__main__':
         args.classes = 11
         args.input_size = '360,480'
         ignore_label = 11
+    elif args.dataset == 'bdd100k':
+        args.classes = 3
+        args.input_size = '720,1280'
+        ignore_label = 0
     else:
         raise NotImplementedError(
-            "This repository now supports two datasets: cityscapes and camvid, %s is not included" % args.dataset)
+            "This repository now supports three datasets: cityscapes, camvid and bdd100k, %s is not included" % args.dataset)
 
     train_model(args)
     end = timeit.default_timer()
