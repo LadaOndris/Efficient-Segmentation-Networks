@@ -3,6 +3,7 @@ import pickle
 from torch.utils import data
 from dataset.cityscapes import CityscapesDataSet, CityscapesTrainInform, CityscapesValDataSet, CityscapesTestDataSet
 from dataset.camvid import CamVidDataSet, CamVidValDataSet, CamVidTrainInform, CamVidTestDataSet
+from dataset.bdd100k import BDD100KDataSet, BDD100KValDataSet, BDD100KTrainInform, BDD100KTestDataSet
 
 
 def build_dataset_train(dataset, input_size, batch_size, train_type, random_scale, random_mirror, num_workers):
@@ -21,9 +22,12 @@ def build_dataset_train(dataset, input_size, batch_size, train_type, random_scal
         elif dataset == 'camvid':
             dataCollect = CamVidTrainInform(data_dir, 11, train_set_file=dataset_list,
                                             inform_data_file=inform_data_file)
+        elif dataset == 'bdd100k':
+            dataCollect = BDD100KTrainInform(data_dir, 3, train_set_file=dataset_list,
+                                            inform_data_file=inform_data_file)
         else:
             raise NotImplementedError(
-                "This repository now supports two datasets: cityscapes and camvid, %s is not included" % dataset)
+                "This repository now supports three datasets: cityscapes, camvid and bdd100k, %s is not included" % dataset)
 
         datas = dataCollect.collectDataAndSave()
         if datas is None:
@@ -62,6 +66,20 @@ def build_dataset_train(dataset, input_size, batch_size, train_type, random_scal
 
         return datas, trainLoader, valLoader
 
+    elif dataset == "bdd100k":
+
+        trainLoader = data.DataLoader(
+            BDD100KDataSet(data_dir, train_data_list, crop_size=input_size,
+                          mirror=random_mirror, mean=datas['mean']),
+            batch_size=batch_size, shuffle=True, num_workers=num_workers,
+            pin_memory=True, drop_last=True)
+
+        valLoader = data.DataLoader(
+            BDD100KValDataSet(data_dir, val_data_list, f_scale=1, mean=datas['mean']),
+            batch_size=1, shuffle=True, num_workers=num_workers, pin_memory=True)
+
+        return datas, trainLoader, valLoader
+
 
 def build_dataset_test(dataset, num_workers, none_gt=False):
     data_dir = os.path.join('./dataset/', dataset)
@@ -78,9 +96,12 @@ def build_dataset_test(dataset, num_workers, none_gt=False):
         elif dataset == 'camvid':
             dataCollect = CamVidTrainInform(data_dir, 11, train_set_file=dataset_list,
                                             inform_data_file=inform_data_file)
+        elif dataset == 'bdd100k':
+            dataCollect = BDD100KTrainInform(data_dir, 3, train_set_file=dataset_list,
+                                            inform_data_file=inform_data_file)
         else:
             raise NotImplementedError(
-                "This repository now supports two datasets: cityscapes and camvid, %s is not included" % dataset)
+                "This repository now supports three datasets: cityscapes, camvid and bdd100k, %s is not included" % dataset)
         
         datas = dataCollect.collectDataAndSave()
         if datas is None:
@@ -109,6 +130,14 @@ def build_dataset_test(dataset, num_workers, none_gt=False):
 
         testLoader = data.DataLoader(
             CamVidValDataSet(data_dir, test_data_list, mean=datas['mean']),
+            batch_size=1, shuffle=False, num_workers=num_workers, pin_memory=True)
+
+        return datas, testLoader
+
+    elif dataset == "bdd100k":
+
+        testLoader = data.DataLoader(
+            BDD100KValDataSet(data_dir, test_data_list, mean=datas['mean']),
             batch_size=1, shuffle=False, num_workers=num_workers, pin_memory=True)
 
         return datas, testLoader
