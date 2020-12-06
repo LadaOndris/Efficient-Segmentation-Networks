@@ -138,7 +138,7 @@ This project has been tailored to suit the [Cityscapes](https://www.cityscapes-d
 
 - You can download [**cityscapes**](https://www.cityscapes-dataset.com/)  dataset from [here](https://www.cityscapes-dataset.com/downloads/). Note: please download [leftImg8bit_trainvaltest.zip(11GB)](https://www.cityscapes-dataset.com/file-handling/?packageID=4) and [gtFine_trainvaltest(241MB)](https://www.cityscapes-dataset.com/file-handling/?packageID=1).
 - You can download [**camvid**](http://mi.eng.cam.ac.uk/research/projects/VideoRec/CamVid/) dataset from [here](https://github.com/alexgkendall/SegNet-Tutorial/tree/master/CamVid).
-- You can download [**camvid**](https://bdd-data.berkeley.edu/) dataset from [here](https://bdd-data.berkeley.edu/#download-section).
+- You can download [**bdd100k**](https://bdd-data.berkeley.edu/) dataset from [here](https://bdd-data.berkeley.edu/#download-section).
 - The **Cityscapes dataset scripts** for inspection, preparation, and evaluation can download from [here](https://github.com/mcordts/cityscapesScripts).
 
 ### Usage
