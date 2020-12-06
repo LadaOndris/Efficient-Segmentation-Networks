@@ -108,10 +108,14 @@ The project supports these LR_Schedulers:
 
 ### Dataset-Setting
 
-This project has been tailored to suit the [Cityscapes](https://www.cityscapes-dataset.com/) and  [CamVid](http://mi.eng.cam.ac.uk/research/projects/VideoRec/CamVid/)  datasets. The folds of your dataset need satisfy the following structures: 
+This project has been tailored to suit the [Cityscapes](https://www.cityscapes-dataset.com/),  [CamVid](http://mi.eng.cam.ac.uk/research/projects/VideoRec/CamVid/) and [BDD100K](https://bdd-data.berkeley.edu/)  datasets. The folds of your dataset need satisfy the following structures: 
 
 ```
 |-- dataset
+|  |-- bdd100k
+|  |  |-- drivable_maps
+|  |  |-- images
+|  |  |-- ...
 |  |-- camvid
 |  |  |-- train
 |  |  |-- trainannot
@@ -134,6 +138,7 @@ This project has been tailored to suit the [Cityscapes](https://www.cityscapes-d
 
 - You can download [**cityscapes**](https://www.cityscapes-dataset.com/)  dataset from [here](https://www.cityscapes-dataset.com/downloads/). Note: please download [leftImg8bit_trainvaltest.zip(11GB)](https://www.cityscapes-dataset.com/file-handling/?packageID=4) and [gtFine_trainvaltest(241MB)](https://www.cityscapes-dataset.com/file-handling/?packageID=1).
 - You can download [**camvid**](http://mi.eng.cam.ac.uk/research/projects/VideoRec/CamVid/) dataset from [here](https://github.com/alexgkendall/SegNet-Tutorial/tree/master/CamVid).
+- You can download [**camvid**](https://bdd-data.berkeley.edu/) dataset from [here](https://bdd-data.berkeley.edu/#download-section).
 - The **Cityscapes dataset scripts** for inspection, preparation, and evaluation can download from [here](https://github.com/mcordts/cityscapesScripts).
 
 ### Usage
@@ -159,7 +164,7 @@ Data dependencies:
 Download Cityscapes and run the script `createTrainIdLabelImgs.py` to create annotations based on the training labels. Make sure that the folder is named *cityscapes*
 
 ##### Training
-- For Cityscapes / CamVid
+- For Cityscapes / CamVid / BDD100K
 
 1. training on **train** set
 
@@ -174,7 +179,7 @@ python train.py --help
 ```
 
 ##### Testing
-- For Cityscapes / CamVid
+- For Cityscapes / CamVid / BDD100K
 
 ```
 python test.py --help
