@@ -1,7 +1,7 @@
 ## Efficient-Segmentation-Networks
 [![python-image]][python-url]
 [![pytorch-image]][pytorch-url]
-The original repository can be found [here](https://github.com/xiaoyufenfei/Efficient-Segmentation-Networks). I just added the support for the BDD100K dataset drivable areas.
+**The original repository can be found [here](https://github.com/xiaoyufenfei/Efficient-Segmentation-Networks). I just added the support for the BDD100K dataset drivable areas.**
 
 This project aims at providing an easy-to-use, modifiable reference implementation for real-time semantic segmentation models using PyTorch.
 
