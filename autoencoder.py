@@ -15,14 +15,16 @@ class CAE(nn.Module):
   def __init__(self):
     super().__init__()
 
-    self.pool = nn.MaxPool2d(kernel_size=2)
+    self.pool = nn.MaxPool2d(kernel_size=2, return_indices=True)
+    self.unpool = nn.MaxUnpool2d(kernel_size=2)
+
     self.l1 = nn.Sequential(
-      nn.Conv2d(1,32,kernel_size=3, padding=2),
+      nn.Conv2d(1,32,kernel_size=3, padding=2), #out is of size (178,322)
       nn.ReLU(),
       )
 
     self.l2 = nn.Sequential(
-      nn.Conv2d(32,16,kernel_size=3, padding=2),
+      nn.Conv2d(32,16,kernel_size=3, padding=2), #
       nn.ReLU(),
       )
 
@@ -43,51 +45,45 @@ class CAE(nn.Module):
 
     self.drop_out = nn.Dropout(p=0.2)
 
-    self.up1 = nn.Sequential(
-      nn.ConvTranspose2d(1,4,kernel_size=3, stride=2),
-      nn.ReLU(),
-      )
+    self.up1 = nn.ConvTranspose2d(1,4,kernel_size=3, padding=1)
+    self.up2 = nn.ConvTranspose2d(4,8,kernel_size=3, padding=1)
+    self.up3 = nn.ConvTranspose2d(8,16,kernel_size=3, padding=2)
+    self.up4 = nn.ConvTranspose2d(16,32,kernel_size=3, padding=2)
+    self.up5 = nn.ConvTranspose2d(32,1,kernel_size=3, padding=2)
 
-    self.up2 = nn.Sequential(
-      nn.ConvTranspose2d(4,8,kernel_size=3, stride=2),
-      nn.ReLU(),
-      )
-
-    self.up3 = nn.Sequential(
-      nn.ConvTranspose2d(8,16,kernel_size=3, stride=2),
-      nn.ReLU(),
-      )
-
-    self.up4 = nn.Sequential(
-      nn.ConvTranspose2d(16,32,kernel_size=3, stride=2),
-      nn.ReLU(),
-      )
-
-    self.up5 = nn.Sequential(
-      nn.ConvTranspose2d(32,1,kernel_size=2, stride=2, padding=(7,15)),
-      nn.Sigmoid(),
-      )
+    self.relu = nn.ReLU()
+    self.sigmoid = nn.Sigmoid()
 
   def forward(self, x):
     x = self.l1(x)
-    x = self.pool(x)
+    x, i1 = self.pool(x)
     x = self.l2(x)
-    x = self.pool(x)
+    x, i2 = self.pool(x)
     x = self.l3(x)
-    x = self.pool(x)
+    x, i3  = self.pool(x)
     x = self.l4(x)
-    x = self.pool(x)
+    x, i4 = self.pool(x)
     x = self.l5(x)
-    x = self.pool(x)
-    x = self.drop_out(x)
+    x, i5 = self.pool(x)
+    #x = self.drop_out(x)
 
     bottleneck = torch.flatten(x)
 
-    x = self.up1(x)
-    x = self.up2(x)
-    x = self.up3(x)
-    x = self.up4(x)
-    x = self.up5(x)
+    x = self.unpool(x, i5, output_size=(11,20))
+    x = self.up1(x, output_size=(11,20))
+    x = self.relu(x)
+    x = self.unpool(x, i4, output_size=(23,41))
+    x = self.up2(x, output_size=(23,41))
+    x = self.relu(x)
+    x = self.unpool(x, i3, output_size=(47,83))
+    x = self.up3(x, output_size=(45,81))
+    x = self.relu(x)
+    x = self.unpool(x, i2, output_size=(91,163))
+    x = self.up4(x, output_size=(89,161))
+    x = self.relu(x)
+    x = self.unpool(x, i1, output_size=(178,322))
+    x = self.up5(x, output_size=(176,320))
+    x = self.sigmoid(x)
 
     return x, bottleneck
 
