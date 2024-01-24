@@ -4,6 +4,10 @@ __pycache__/
 *.pyo
 *.pth
 .idea/
-result/
 server/
+result/
 checkpoint/
+dataset/bdd100k/images
+dataset/bdd100k/labels
+wandb/
+
