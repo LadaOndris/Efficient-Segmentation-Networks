@@ -1,4 +1,4 @@
-import os,sys
+import os, sys
 import time
 import torch
 from torch import optim
@@ -7,6 +7,9 @@ import timeit
 import math
 import numpy as np
 import matplotlib
+
+from loggers import FileLogger, WandbLogger
+
 matplotlib.use('Agg')
 from matplotlib import pyplot as plt
 import torch.backends.cudnn as cudnn
@@ -16,11 +19,10 @@ from builders.model_builder import build_model
 from builders.dataset_builder import build_dataset_train
 from utils.utils import setup_seed, init_weight, netParams
 from utils.metric.metric import get_iou
-from utils.losses.loss import LovaszSoftmax, CrossEntropyLoss2d, CrossEntropyLoss2dLabelSmooth,\
+from utils.losses.loss import LovaszSoftmax, CrossEntropyLoss2d, CrossEntropyLoss2dLabelSmooth, \
     ProbOhemCrossEntropy2d, FocalLoss2d
 from utils.optim import RAdam, Ranger, AdamW
 from utils.scheduler.lr_scheduler import WarmupPolyLR
-
 
 sys.setrecursionlimit(1000000)  # solve problem 'maximum recursion depth exceeded'
 
@@ -31,6 +33,14 @@ print(torch_ver)
 
 GLOBAL_SEED = 1234
 
+
+def str_to_bool(value):
+    if value.lower() in {'true', '1', 't', 'y', 'yes'}:
+        return True
+    elif value.lower() in {'false', '0', 'f', 'n', 'no'}:
+        return False
+    else:
+        raise argparse.ArgumentTypeError('Boolean value expected.')
 
 
 def parse_args():
@@ -47,32 +57,158 @@ def parse_args():
     # training hyper params
     parser.add_argument('--max_epochs', type=int, default=1000,
                         help="the number of epochs: 300 for train set, 350 for train+val set")
-    parser.add_argument('--random_mirror', type=bool, default=True, help="input image random mirror")
-    parser.add_argument('--random_scale', type=bool, default=True, help="input image resize 0.5 to 2")
+    parser.add_argument('--random_mirror', type=str_to_bool, default=True, help="input image random mirror")
+    parser.add_argument('--random_scale', type=str_to_bool, default=True, help="input image resize 0.5 to 2")
     parser.add_argument('--lr', type=float, default=5e-4, help="initial learning rate")
     parser.add_argument('--batch_size', type=int, default=8, help="the batch size is set to 16 for 2 GPUs")
-    parser.add_argument('--optim',type=str.lower,default='adam',choices=['sgd','adam','radam','ranger'],help="select optimizer")
+    parser.add_argument('--optim', type=str.lower, default='adam', choices=['sgd', 'adam', 'radam', 'ranger'],
+                        help="select optimizer")
     parser.add_argument('--lr_schedule', type=str, default='warmpoly', help='name of lr schedule: poly')
     parser.add_argument('--num_cycles', type=int, default=1, help='Cosine Annealing Cyclic LR')
-    parser.add_argument('--poly_exp', type=float, default=0.9,help='polynomial LR exponent')
+    parser.add_argument('--poly_exp', type=float, default=0.9, help='polynomial LR exponent')
     parser.add_argument('--warmup_iters', type=int, default=500, help='warmup iterations')
     parser.add_argument('--warmup_factor', type=float, default=1.0 / 3, help='warm up start lr=warmup_factor*lr')
-    parser.add_argument('--use_label_smoothing', action='store_true', default=False, help="CrossEntropy2d Loss with label smoothing or not")
-    parser.add_argument('--use_ohem', action='store_true', default=False, help='OhemCrossEntropy2d Loss for cityscapes dataset')
-    parser.add_argument('--use_lovaszsoftmax', action='store_true', default=False, help='LovaszSoftmax Loss for cityscapes dataset')
-    parser.add_argument('--use_focal', action='store_true', default=False,help=' FocalLoss2d for cityscapes dataset')
+    parser.add_argument('--use_label_smoothing', action='store_true', default=False,
+                        help="CrossEntropy2d Loss with label smoothing or not")
+    parser.add_argument('--use_ohem', action='store_true', default=False,
+                        help='OhemCrossEntropy2d Loss for cityscapes dataset')
+    parser.add_argument('--use_lovaszsoftmax', action='store_true', default=False,
+                        help='LovaszSoftmax Loss for cityscapes dataset')
+    parser.add_argument('--use_focal', action='store_true', default=False, help=' FocalLoss2d for cityscapes dataset')
     # cuda setting
-    parser.add_argument('--cuda', type=bool, default=True, help="running on CPU or GPU")
+    parser.add_argument('--cuda', type=str_to_bool, default=True, help="running on CPU or GPU")
     parser.add_argument('--gpus', type=str, default="0", help="default GPU devices (0,1)")
     # checkpoint and log
     parser.add_argument('--resume', type=str, default="",
                         help="use this file to load last checkpoint for continuing training")
     parser.add_argument('--savedir', default="./checkpoint/", help="directory to save the model snapshot")
+    parser.add_argument('--logger', default="file", help="type of logger to use (file, wandb)")
     parser.add_argument('--logFile', default="log.txt", help="storing the training and validation logs")
     args = parser.parse_args()
 
     return args
 
+
+def get_criterion(args, class_weights):
+    if args.dataset == 'camvid' or args.dataset == 'bdd100k':
+        criteria = CrossEntropyLoss2d(weight=class_weights, ignore_label=ignore_label)
+    elif args.dataset == 'camvid' and args.use_label_smoothing:
+        criteria = CrossEntropyLoss2dLabelSmooth(weight=class_weights, ignore_label=ignore_label)
+    elif args.dataset == 'bdd100k' and args.use_label_smoothing:
+        criteria = CrossEntropyLoss2dLabelSmooth(weight=class_weights, ignore_label=ignore_label)
+
+    elif args.dataset == 'cityscapes' and args.use_ohem:
+        min_kept = int(args.batch_size // len(args.gpus) * h * w // 16)
+        criteria = ProbOhemCrossEntropy2d(use_weight=True, ignore_label=ignore_label, thresh=0.7, min_kept=min_kept)
+    elif args.dataset == 'cityscapes' and args.use_label_smoothing:
+        criteria = CrossEntropyLoss2dLabelSmooth(weight=class_weights, ignore_label=ignore_label)
+    elif args.dataset == 'cityscapes' and args.use_lovaszsoftmax:
+        criteria = LovaszSoftmax(ignore_index=ignore_label)
+    elif args.dataset == 'cityscapes' and args.use_focal:
+        criteria = FocalLoss2d(weight=class_weights, ignore_index=ignore_label)
+    else:
+        raise NotImplementedError(
+            "This repository now supports three datasets: cityscapes, camvid and bdd100k, %s is not included" % args.dataset)
+    if args.cuda:
+        criteria = criteria.cuda()
+    return criteria
+
+
+def set_model_to_cuda(model, args):
+    if args.cuda:
+        if torch.cuda.device_count() > 1:
+            print("torch.cuda.device_count()=", torch.cuda.device_count())
+            args.gpu_nums = torch.cuda.device_count()
+            model = nn.DataParallel(model).cuda()  # multi-card data parallel
+        else:
+            args.gpu_nums = 1
+            print("single GPU for training")
+            model = model.cuda()  # 1-card data parallel
+    else:
+        args.gpu_nums = 0
+    return model
+
+
+def get_optimizer(model):
+    if args.optim == 'sgd':
+        optimizer = torch.optim.SGD(
+            filter(lambda p: p.requires_grad, model.parameters()), lr=args.lr, momentum=0.9, weight_decay=1e-4)
+    elif args.optim == 'adam':
+        optimizer = torch.optim.Adam(
+            filter(lambda p: p.requires_grad, model.parameters()), lr=args.lr, betas=(0.9, 0.999), eps=1e-08,
+            weight_decay=1e-4)
+    elif args.optim == 'radam':
+        optimizer = RAdam(
+            filter(lambda p: p.requires_grad, model.parameters()), lr=args.lr, betas=(0.90, 0.999), eps=1e-08,
+            weight_decay=1e-4)
+    elif args.optim == 'ranger':
+        optimizer = Ranger(
+            filter(lambda p: p.requires_grad, model.parameters()), lr=args.lr, betas=(0.95, 0.999), eps=1e-08,
+            weight_decay=1e-4)
+    elif args.optim == 'adamw':
+        optimizer = AdamW(
+            filter(lambda p: p.requires_grad, model.parameters()), lr=args.lr, betas=(0.9, 0.999), eps=1e-08,
+            weight_decay=1e-4)
+    else:
+        raise Exception(f'Wrong args.optim: {args.optim}')
+    return optimizer
+
+
+def setup_logger(args, model):
+    if args.logger == 'file':
+        logFileLoc = args.savedir + args.logFile
+        logger = FileLogger(logFileLoc)
+        logger.setup()
+    elif args.logger == 'wandb':
+        logger = WandbLogger()
+        logger.setup(args, model)
+    else:
+        raise Exception(f"Unsupported args.logger: {args.logger}")
+
+    return logger
+
+
+def save_model(args, epoch, model):
+    # save the model
+    model_file_name = args.savedir + '/model_' + str(epoch + 1) + '.pth'
+    state = {"epoch": epoch + 1, "model": model.state_dict()}
+
+    # Individual Setting for save model !!!
+    if args.dataset == 'camvid' or args.dataset == 'bdd100k':
+        torch.save(state, model_file_name)
+    elif args.dataset == 'cityscapes':
+        if epoch >= args.max_epochs - 10:
+            torch.save(state, model_file_name)
+        elif not epoch % 50:
+            torch.save(state, model_file_name)
+
+
+def draw_plots_for_visualization(epoch, start_epoch, epochs, lossTr_list, mIOU_val_list):
+    # draw plots for visualization
+    if epoch % 50 == 0 or epoch == (args.max_epochs - 1):
+        # Plot the figures per 50 epochs
+        fig1, ax1 = plt.subplots(figsize=(11, 8))
+
+        ax1.plot(range(start_epoch, epoch + 1), lossTr_list)
+        ax1.set_title("Average training loss vs epochs")
+        ax1.set_xlabel("Epochs")
+        ax1.set_ylabel("Current loss")
+
+        plt.savefig(args.savedir + "loss_vs_epochs.png")
+
+        plt.clf()
+
+        fig2, ax2 = plt.subplots(figsize=(11, 8))
+
+        ax2.plot(epochs, mIOU_val_list, label="Val IoU")
+        ax2.set_title("Average IoU vs epochs")
+        ax2.set_xlabel("Epochs")
+        ax2.set_ylabel("Current IoU")
+        plt.legend(loc='lower right')
+
+        plt.savefig(args.savedir + "iou_vs_epochs.png")
+
+        plt.close('all')
 
 
 def train_model(args):
@@ -91,7 +227,6 @@ def train_model(args):
         os.environ["CUDA_VISIBLE_DEVICES"] = args.gpus
         if not torch.cuda.is_available():
             raise Exception("No GPU found or Wrong gpu id, please run without --cuda")
-
 
     # set the seed
     setup_seed(GLOBAL_SEED)
@@ -117,48 +252,17 @@ def train_model(args):
     args.per_iter = len(trainLoader)
     args.max_iter = args.max_epochs * args.per_iter
 
-
     print('=====> Dataset statistics')
     print("data['classWeights']: ", datas['classWeights'])
     print('mean and std: ', datas['mean'], datas['std'])
 
-    # define loss function, respectively
-    weight = torch.from_numpy(datas['classWeights'])
+    class_weights = torch.from_numpy(datas['classWeights'])
+    criteria = get_criterion(args, class_weights)
 
-    if args.dataset == 'camvid' or args.dataset == 'bdd100k':
-        criteria = CrossEntropyLoss2d(weight=weight, ignore_label=ignore_label)
-    elif args.dataset == 'camvid' and args.use_label_smoothing:
-        criteria = CrossEntropyLoss2dLabelSmooth(weight=weight, ignore_label=ignore_label)
-    elif args.dataset == 'bdd100k' and args.use_label_smoothing:
-        criteria = CrossEntropyLoss2dLabelSmooth(weight=weight, ignore_label=ignore_label)
-
-    elif args.dataset == 'cityscapes' and args.use_ohem:
-        min_kept = int(args.batch_size // len(args.gpus) * h * w // 16)
-        criteria = ProbOhemCrossEntropy2d(use_weight=True, ignore_label=ignore_label, thresh=0.7, min_kept=min_kept)
-    elif args.dataset == 'cityscapes' and args.use_label_smoothing:
-        criteria = CrossEntropyLoss2dLabelSmooth(weight=weight, ignore_label=ignore_label)
-    elif args.dataset == 'cityscapes' and args.use_lovaszsoftmax:
-        criteria = LovaszSoftmax(ignore_index=ignore_label)
-    elif args.dataset == 'cityscapes' and args.use_focal:
-        criteria = FocalLoss2d(weight=weight, ignore_index=ignore_label)
-    else:
-        raise NotImplementedError(
-            "This repository now supports three datasets: cityscapes, camvid and bdd100k, %s is not included" % args.dataset)
-
-    if args.cuda:
-        criteria = criteria.cuda()
-        if torch.cuda.device_count() > 1:
-            print("torch.cuda.device_count()=", torch.cuda.device_count())
-            args.gpu_nums = torch.cuda.device_count()
-            model = nn.DataParallel(model).cuda()  # multi-card data parallel
-        else:
-            args.gpu_nums = 1
-            print("single GPU for training")
-            model = model.cuda()  # 1-card data parallel
+    model = set_model_to_cuda(model, args)
 
     args.savedir = (args.savedir + args.dataset + '/' + args.model + 'bs'
                     + str(args.batch_size) + 'gpu' + str(args.gpu_nums) + "_" + str(args.train_type) + '/')
-
 
     if not os.path.exists(args.savedir):
         os.makedirs(args.savedir)
@@ -180,33 +284,10 @@ def train_model(args):
     cudnn.benchmark = True
     # cudnn.deterministic = True ## my add
 
-    logFileLoc = args.savedir + args.logFile
-    if os.path.isfile(logFileLoc):
-        logger = open(logFileLoc, 'a')
-    else:
-        logger = open(logFileLoc, 'w')
-        logger.write("Parameters: %s Seed: %s" % (str(total_paramters), GLOBAL_SEED))
-        logger.write("\n%s\t\t%s\t%s\t%s" % ('Epoch', 'Loss(Tr)', 'mIOU (val)', 'lr'))
-    logger.flush()
-
+    logger = setup_logger(args, model)
 
     # define optimization strategy
-    if args.optim == 'sgd':
-        optimizer = torch.optim.SGD(
-            filter(lambda p: p.requires_grad, model.parameters()), lr=args.lr, momentum=0.9, weight_decay=1e-4)
-    elif args.optim == 'adam':
-        optimizer = torch.optim.Adam(
-            filter(lambda p: p.requires_grad, model.parameters()), lr=args.lr, betas=(0.9, 0.999), eps=1e-08, weight_decay=1e-4)
-    elif args.optim == 'radam':
-        optimizer = RAdam(
-            filter(lambda p: p.requires_grad, model.parameters()), lr=args.lr, betas=(0.90, 0.999), eps=1e-08, weight_decay=1e-4)
-    elif args.optim == 'ranger':
-        optimizer = Ranger(
-            filter(lambda p: p.requires_grad, model.parameters()), lr=args.lr, betas=(0.95, 0.999), eps=1e-08, weight_decay=1e-4)
-    elif args.optim == 'adamw':
-        optimizer = AdamW(
-            filter(lambda p: p.requires_grad, model.parameters()), lr=args.lr, betas=(0.9, 0.999), eps=1e-08, weight_decay=1e-4)
-
+    optimizer = get_optimizer(model)
 
     lossTr_list = []
     epoches = []
@@ -216,7 +297,7 @@ def train_model(args):
     for epoch in range(start_epoch, args.max_epochs):
         # training
 
-        lossTr, lr = train(args, trainLoader, model, criteria, optimizer, epoch)
+        lossTr, lr = train_epoch(args, trainLoader, model, criteria, optimizer, epoch)
         lossTr_list.append(lossTr)
 
         # validation
@@ -224,65 +305,36 @@ def train_model(args):
             epoches.append(epoch)
             mIOU_val, per_class_iu = val(args, valLoader, model)
             mIOU_val_list.append(mIOU_val)
-            # record train information
-            logger.write("\n%d\t\t%.4f\t\t%.4f\t\t%.7f" % (epoch, lossTr, mIOU_val, lr))
-            logger.flush()
+
+            logger.log({
+                'epoch': epoch,
+                'lossTr': lossTr,
+                'mIOU_val': mIOU_val,
+                'lr': lr
+            })
+
             print("Epoch : " + str(epoch) + ' Details')
             print("Epoch No.: %d\tTrain Loss = %.4f\t mIOU(val) = %.4f\t lr= %.6f\n" % (epoch,
                                                                                         lossTr,
                                                                                         mIOU_val, lr))
         else:
-            # record train information
-            logger.write("\n%d\t\t%.4f\t\t\t\t%.7f" % (epoch, lossTr, lr))
-            logger.flush()
+            logger.log({
+                'epoch': epoch,
+                'lossTr': lossTr,
+                'lr': lr
+            })
+
             print("Epoch : " + str(epoch) + ' Details')
             print("Epoch No.: %d\tTrain Loss = %.4f\t lr= %.6f\n" % (epoch, lossTr, lr))
 
-        # save the model
-        model_file_name = args.savedir + '/model_' + str(epoch + 1) + '.pth'
-        state = {"epoch": epoch + 1, "model": model.state_dict()}
+        save_model(args, epoch, model)
 
-        # Individual Setting for save model !!!
-        if args.dataset == 'camvid' or args.dataset == 'bdd100k':
-            torch.save(state, model_file_name)
-        elif args.dataset == 'cityscapes':
-            if epoch >= args.max_epochs - 10:
-                torch.save(state, model_file_name)
-            elif not epoch % 50:
-                torch.save(state, model_file_name)
+        draw_plots_for_visualization(epoch, start_epoch, epoches, lossTr_list, mIOU_val_list)
+
+    logger.destroy()
 
 
-
-        # draw plots for visualization
-        if epoch % 50 == 0 or epoch == (args.max_epochs - 1):
-            # Plot the figures per 50 epochs
-            fig1, ax1 = plt.subplots(figsize=(11, 8))
-
-            ax1.plot(range(start_epoch, epoch + 1), lossTr_list)
-            ax1.set_title("Average training loss vs epochs")
-            ax1.set_xlabel("Epochs")
-            ax1.set_ylabel("Current loss")
-
-            plt.savefig(args.savedir + "loss_vs_epochs.png")
-
-            plt.clf()
-
-            fig2, ax2 = plt.subplots(figsize=(11, 8))
-
-            ax2.plot(epoches, mIOU_val_list, label="Val IoU")
-            ax2.set_title("Average IoU vs epochs")
-            ax2.set_xlabel("Epochs")
-            ax2.set_ylabel("Current IoU")
-            plt.legend(loc='lower right')
-
-            plt.savefig(args.savedir + "iou_vs_epochs.png")
-
-            plt.close('all')
-
-    logger.close()
-
-
-def train(args, train_loader, model, criterion, optimizer, epoch):
+def train_epoch(args, train_loader, model, criterion, optimizer, epoch):
     """
     args:
        train_loader: loaded for training dataset
@@ -301,7 +353,6 @@ def train(args, train_loader, model, criterion, optimizer, epoch):
     st = time.time()
     for iteration, batch in enumerate(train_loader, 0):
 
-
         args.per_iter = total_batches
         args.max_iter = args.max_epochs * args.per_iter
         args.cur_iter = epoch * args.per_iter + iteration
@@ -311,31 +362,30 @@ def train(args, train_loader, model, criterion, optimizer, epoch):
             scheduler = optim.lr_scheduler.LambdaLR(optimizer, lr_lambda=lambda1)
         elif args.lr_schedule == 'warmpoly':
             scheduler = WarmupPolyLR(optimizer, T_max=args.max_iter, cur_iter=args.cur_iter, warmup_factor=1.0 / 3,
-                                 warmup_iters=args.warmup_iters, power=0.9)
-
-
+                                     warmup_iters=args.warmup_iters, power=0.9)
 
         lr = optimizer.param_groups[0]['lr']
 
         start_time = time.time()
         images, labels, _, _ = batch
+        labels = labels.long()
 
         if torch_ver == '0.3':
-            images = Variable(images).cuda()
-            labels = Variable(labels.long()).cuda()
-        else:
+            images = Variable(images)
+            labels = Variable(labels)
+
+        if args.cuda:
             images = images.cuda()
-            labels = labels.long().cuda()
+            labels = labels.cuda()
 
         output = model(images)
         loss = criterion(output, labels)
         optimizer.zero_grad()
         loss.backward()
         optimizer.step()
-        scheduler.step() # In pytorch 1.1.0 and later, should call 'optimizer.step()' before 'lr_scheduler.step()'
+        scheduler.step()  # In pytorch 1.1.0 and later, should call 'optimizer.step()' before 'lr_scheduler.step()'
         epoch_loss.append(loss.item())
         time_taken = time.time() - start_time
-
 
         print('=====> epoch[%d/%d] iter: (%d/%d) \tcur_lr: %.6f loss: %.3f time:%.2f' % (epoch + 1, args.max_epochs,
                                                                                          iteration + 1, total_batches,
@@ -380,7 +430,6 @@ def val(args, val_loader, model):
 
     meanIoU, per_class_iu = get_iou(data_list, args.classes)
     return meanIoU, per_class_iu
-
 
 
 if __name__ == '__main__':
