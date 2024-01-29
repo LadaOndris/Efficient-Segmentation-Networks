@@ -26,6 +26,8 @@ SINGULARITY_COMMANDS="pip3 install --cache-dir=$SCRATCHDIR -r requirements.txt &
   export PYTHONPATH=$EXECDIR && \
   CUDA_VISIBLE_DEVICES=0 && \
   python3 train.py \
+   --logger wandb \
+   --max_epochs 300 \
    --dataset bdd100k \
    --num_workers $NUM_WORKERS"
 
