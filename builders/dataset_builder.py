@@ -47,7 +47,7 @@ def build_dataset_train(dataset, input_size, batch_size, train_type, random_scal
 
         valLoader = data.DataLoader(
             CityscapesValDataSet(data_dir, val_data_list, f_scale=1, mean=datas['mean']),
-            batch_size=1, shuffle=True, num_workers=num_workers, pin_memory=True,
+            batch_size=batch_size, shuffle=True, num_workers=num_workers, pin_memory=True,
             drop_last=True)
 
         return datas, trainLoader, valLoader
@@ -85,6 +85,7 @@ def build_dataset_test(dataset, num_workers, none_gt=False):
     data_dir = os.path.join('./dataset/', dataset)
     dataset_list = dataset + '_trainval_list.txt'
     test_data_list = os.path.join(data_dir, dataset + '_test' + '_list.txt')
+    val_data_list = os.path.join(data_dir, dataset + '_val' + '_list.txt')
     inform_data_file = os.path.join('./dataset/inform/', dataset + '_inform.pkl')
 
     # inform_data_file collect the information of mean, std and weigth_class
@@ -137,7 +138,7 @@ def build_dataset_test(dataset, num_workers, none_gt=False):
     elif dataset == "bdd100k":
 
         testLoader = data.DataLoader(
-            BDD100KValDataSet(data_dir, test_data_list, mean=datas['mean']),
+            BDD100KValDataSet(data_dir, val_data_list, mean=datas['mean']),
             batch_size=1, shuffle=False, num_workers=num_workers, pin_memory=True)
 
         return datas, testLoader

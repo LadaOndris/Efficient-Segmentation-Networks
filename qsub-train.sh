@@ -29,7 +29,8 @@ SINGULARITY_COMMANDS="pip3 install --cache-dir=$SCRATCHDIR -r requirements.txt &
    --logger wandb \
    --max_epochs 300 \
    --dataset bdd100k \
-   --num_workers $NUM_WORKERS"
+   --num_workers $NUM_WORKERS \
+   --train_type train"
 
 singularity exec --nv -B "$SCRATCHDIR" /cvmfs/singularity.metacentrum.cz/NGC/PyTorch\:22.12-py3.SIF  \
   bash -c "$SINGULARITY_COMMANDS"
