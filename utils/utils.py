@@ -1,3 +1,4 @@
+import argparse
 import os
 import random
 import numpy as np
@@ -39,6 +40,10 @@ def setup_seed(seed):
 
 
 def save_predict(output, gt, img_name, dataset, save_path, output_grey=False, output_color=True, gt_color=False):
+    # Create folders if necessary
+    dir_path, _ = os.path.split(os.path.join(save_path, img_name))
+    os.makedirs(dir_path, exist_ok=True)
+
     if output_grey:
         output_grey = Image.fromarray(output)
         output_grey.save(os.path.join(save_path, img_name + '.png'))
@@ -76,3 +81,12 @@ def netParams(model):
         total_paramters += p
 
     return total_paramters
+
+
+def str_to_bool(value):
+    if value.lower() in {'true', '1', 't', 'y', 'yes'}:
+        return True
+    elif value.lower() in {'false', '0', 'f', 'n', 'no'}:
+        return False
+    else:
+        raise argparse.ArgumentTypeError('Boolean value expected.')

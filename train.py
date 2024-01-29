@@ -17,7 +17,7 @@ from argparse import ArgumentParser
 # user
 from builders.model_builder import build_model
 from builders.dataset_builder import build_dataset_train
-from utils.utils import setup_seed, init_weight, netParams
+from utils.utils import setup_seed, init_weight, netParams, str_to_bool
 from utils.metric.metric import get_iou
 from utils.losses.loss import LovaszSoftmax, CrossEntropyLoss2d, CrossEntropyLoss2dLabelSmooth, \
     ProbOhemCrossEntropy2d, FocalLoss2d
@@ -34,15 +34,6 @@ print(torch_ver)
 GLOBAL_SEED = 1234
 
 
-def str_to_bool(value):
-    if value.lower() in {'true', '1', 't', 'y', 'yes'}:
-        return True
-    elif value.lower() in {'false', '0', 'f', 'n', 'no'}:
-        return False
-    else:
-        raise argparse.ArgumentTypeError('Boolean value expected.')
-
-
 def parse_args():
     parser = ArgumentParser(description='Efficient semantic segmentation')
     # model and dataset
@@ -57,6 +48,8 @@ def parse_args():
     # training hyper params
     parser.add_argument('--max_epochs', type=int, default=1000,
                         help="the number of epochs: 300 for train set, 350 for train+val set")
+    parser.add_argument('--eval_freq', type=int, default=1,
+                        help="how often to run the evaluation (e.g., 1 for every epoch, 2 for every other epoch)")
     parser.add_argument('--random_mirror', type=str_to_bool, default=True, help="input image random mirror")
     parser.add_argument('--random_scale', type=str_to_bool, default=True, help="input image resize 0.5 to 2")
     parser.add_argument('--lr', type=float, default=5e-4, help="initial learning rate")
@@ -179,13 +172,13 @@ def save_model(args, epoch, model):
     elif args.dataset == 'cityscapes':
         if epoch >= args.max_epochs - 10:
             torch.save(state, model_file_name)
-        elif not epoch % 50:
+        elif not epoch % args.eval_freq:
             torch.save(state, model_file_name)
 
 
 def draw_plots_for_visualization(epoch, start_epoch, epochs, lossTr_list, mIOU_val_list):
     # draw plots for visualization
-    if epoch % 50 == 0 or epoch == (args.max_epochs - 1):
+    if epoch % args.eval_freq == 0 or epoch == (args.max_epochs - 1):
         # Plot the figures per 50 epochs
         fig1, ax1 = plt.subplots(figsize=(11, 8))
 
@@ -297,11 +290,11 @@ def train_model(args):
     for epoch in range(start_epoch, args.max_epochs):
         # training
 
-        lossTr, lr = train_epoch(args, trainLoader, model, criteria, optimizer, epoch)
+        lossTr, lr = train_epoch(args, trainLoader, model, criteria, optimizer, epoch, logger)
         lossTr_list.append(lossTr)
 
         # validation
-        if epoch % 50 == 0 or epoch == (args.max_epochs - 1):
+        if epoch % args.eval_freq == 0 or epoch == (args.max_epochs - 1):
             epoches.append(epoch)
             mIOU_val, per_class_iu = val(args, valLoader, model)
             mIOU_val_list.append(mIOU_val)
@@ -334,7 +327,7 @@ def train_model(args):
     logger.destroy()
 
 
-def train_epoch(args, train_loader, model, criterion, optimizer, epoch):
+def train_epoch(args, train_loader, model, criterion, optimizer, epoch, logger):
     """
     args:
        train_loader: loaded for training dataset
@@ -390,6 +383,10 @@ def train_epoch(args, train_loader, model, criterion, optimizer, epoch):
         print('=====> epoch[%d/%d] iter: (%d/%d) \tcur_lr: %.6f loss: %.3f time:%.2f' % (epoch + 1, args.max_epochs,
                                                                                          iteration + 1, total_batches,
                                                                                          lr, loss.item(), time_taken))
+        logger.log({
+            'batch_loss_train': loss
+        })
+
 
     time_taken_epoch = time.time() - st
     remain_time = time_taken_epoch * (args.max_epochs - 1 - epoch)
@@ -447,7 +444,7 @@ if __name__ == '__main__':
     elif args.dataset == 'bdd100k':
         args.classes = 3
         args.input_size = '720,1280'
-        ignore_label = 0
+        ignore_label = -100  # Nothing to be ignored
     else:
         raise NotImplementedError(
             "This repository now supports three datasets: cityscapes, camvid and bdd100k, %s is not included" % args.dataset)

@@ -7,7 +7,7 @@ from argparse import ArgumentParser
 # user
 from builders.model_builder import build_model
 from builders.dataset_builder import build_dataset_test
-from utils.utils import save_predict
+from utils.utils import save_predict, str_to_bool
 from utils.metric.metric import get_iou
 from utils.convert_state import convert_state_dict
 
@@ -19,19 +19,17 @@ def parse_args():
     parser.add_argument('--num_workers', type=int, default=1, help="the number of parallel threads")
     parser.add_argument('--batch_size', type=int, default=1,
                         help=" the batch_size is set to 1 when evaluating or testing")
-    parser.add_argument('--checkpoint', type=str,default="",
+    parser.add_argument('--checkpoint', type=str, default="",
                         help="use the file to load the checkpoint for evaluating or testing ")
     parser.add_argument('--save_seg_dir', type=str, default="./result/",
                         help="saving path of prediction result")
     parser.add_argument('--best', action='store_true', help="Get the best result among last few checkpoints")
     parser.add_argument('--save', action='store_true', help="Save the predicted image")
-    parser.add_argument('--cuda', default=True, help="run on CPU or GPU")
+    parser.add_argument('--cuda', type=str_to_bool, default=True, help="run on CPU or GPU")
     parser.add_argument("--gpus", default="0", type=str, help="gpu ids (default: 0)")
     args = parser.parse_args()
 
     return args
-
-
 
 
 def test(args, test_loader, model):
@@ -47,11 +45,15 @@ def test(args, test_loader, model):
 
     data_list = []
     for i, (input, label, size, name) in enumerate(test_loader):
-        with torch.no_grad():
-            input_var = input.cuda()
+        if args.cuda:
+            with torch.no_grad():
+                input_var = input.cuda()
+        else:
+            input_var = input
         start_time = time.time()
         output = model(input_var)
-        torch.cuda.synchronize()
+        if args.cuda:
+            torch.cuda.synchronize()
         time_taken = time.time() - start_time
         print('[%d/%d]  time: %.2f' % (i + 1, total_batches, time_taken))
         output = output.cpu().data[0].numpy()
@@ -64,6 +66,9 @@ def test(args, test_loader, model):
         if args.save:
             save_predict(output, gt, name[0], args.dataset, args.save_seg_dir,
                          output_grey=False, output_color=True, gt_color=True)
+
+        if i == 5:
+            break
 
     meanIoU, per_class_iu = get_iou(data_list, args.classes)
     return meanIoU, per_class_iu
@@ -101,7 +106,11 @@ def test_model(args):
         if args.checkpoint:
             if os.path.isfile(args.checkpoint):
                 print("=====> loading checkpoint '{}'".format(args.checkpoint))
-                checkpoint = torch.load(args.checkpoint)
+                if not args.cuda:
+                    device = torch.device('cpu')
+                else:
+                    device = torch.device('cuda')
+                checkpoint = torch.load(args.checkpoint, map_location=device)
                 model.load_state_dict(checkpoint['model'])
                 # model.load_state_dict(convert_state_dict(checkpoint['model']))
             else:
