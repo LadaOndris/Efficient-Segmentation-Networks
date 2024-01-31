@@ -383,10 +383,22 @@ def train_epoch(args, train_loader, model, criterion, optimizer, epoch, logger):
         print('=====> epoch[%d/%d] iter: (%d/%d) \tcur_lr: %.6f loss: %.3f time:%.2f' % (epoch + 1, args.max_epochs,
                                                                                          iteration + 1, total_batches,
                                                                                          lr, loss.item(), time_taken))
-        logger.log({
-            'batch_loss_train': loss
-        })
 
+        output = output.cpu().detach().numpy()
+        gt = np.asarray(labels.cpu().detach().numpy(), dtype=np.uint8)
+        output = output.transpose(0, 2, 3, 1)
+        output = np.asarray(np.argmax(output, axis=3), dtype=np.uint8)
+
+        data_list = []
+        for i in range(gt.shape[0]):
+            data_list.append([gt[i].flatten(), output[i].flatten()])
+
+        meanIoU, _ = get_iou(data_list, args.classes)
+
+        logger.log({
+            'batch_loss_train': loss,
+            'batch_mIOU_train': meanIoU
+        })
 
     time_taken_epoch = time.time() - st
     remain_time = time_taken_epoch * (args.max_epochs - 1 - epoch)

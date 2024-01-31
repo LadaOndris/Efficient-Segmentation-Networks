@@ -76,7 +76,7 @@ def build_dataset_train(dataset, input_size, batch_size, train_type, random_scal
 
         valLoader = data.DataLoader(
             BDD100KValDataSet(data_dir, val_data_list, f_scale=1, mean=datas['mean']),
-            batch_size=1, shuffle=True, num_workers=num_workers, pin_memory=True)
+            batch_size=1, shuffle=False, num_workers=num_workers, pin_memory=True)
 
         return datas, trainLoader, valLoader
 
@@ -138,7 +138,6 @@ def build_dataset_test(dataset, num_workers, none_gt=False):
     elif dataset == "bdd100k":
 
         testLoader = data.DataLoader(
-            BDD100KValDataSet(data_dir, val_data_list, mean=datas['mean']),
+            BDD100KValDataSet(data_dir, val_data_list, f_scale=1, mean=datas['mean']),
             batch_size=1, shuffle=False, num_workers=num_workers, pin_memory=True)
-
         return datas, testLoader
