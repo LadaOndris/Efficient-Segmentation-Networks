@@ -19,6 +19,7 @@ from builders.model_builder import build_model
 from builders.dataset_builder import build_dataset_train
 from utils.utils import setup_seed, init_weight, netParams, str_to_bool
 from utils.metric.metric import get_iou
+from utils.metric.iou import calculate_iou
 from utils.losses.loss import LovaszSoftmax, CrossEntropyLoss2d, CrossEntropyLoss2dLabelSmooth, \
     ProbOhemCrossEntropy2d, FocalLoss2d
 from utils.optim import RAdam, Ranger, AdamW
@@ -340,6 +341,7 @@ def train_epoch(args, train_loader, model, criterion, optimizer, epoch, logger):
 
     model.train()
     epoch_loss = []
+    total_iou = 0.0
 
     total_batches = len(train_loader)
     print("=====> the number of iterations per epoch: ", total_batches)
@@ -383,30 +385,37 @@ def train_epoch(args, train_loader, model, criterion, optimizer, epoch, logger):
         print('=====> epoch[%d/%d] iter: (%d/%d) \tcur_lr: %.6f loss: %.3f time:%.2f' % (epoch + 1, args.max_epochs,
                                                                                          iteration + 1, total_batches,
                                                                                          lr, loss.item(), time_taken))
+        # if iteration % 100 == 0:
+        with torch.no_grad():
+            outputs_argmax = torch.argmax(output, dim=1).detach()
+            batch_iou, _ = calculate_iou(outputs_argmax, labels, args.classes)
 
-        output = output.cpu().detach().numpy()
-        gt = np.asarray(labels.cpu().detach().numpy(), dtype=np.uint8)
-        output = output.transpose(0, 2, 3, 1)
-        output = np.asarray(np.argmax(output, axis=3), dtype=np.uint8)
-
-        data_list = []
-        for i in range(gt.shape[0]):
-            data_list.append([gt[i].flatten(), output[i].flatten()])
-
-        meanIoU, _ = get_iou(data_list, args.classes)
+        mIOU = np.mean(batch_iou)
+        total_iou += batch_iou
 
         logger.log({
             'batch_loss_train': loss,
-            'batch_mIOU_train': meanIoU
+            'batch_mIOU_train': mIOU
         })
+        # else:
+        #
+        #     logger.log({
+        #         'batch_loss_train': loss
+        #     })
+
+    average_iou = total_iou / len(train_loader)
+    average_epoch_loss_train = sum(epoch_loss) / len(epoch_loss)
+
+    logger.log({
+        'epoch_mIOU_train': average_iou,
+        'epoch_loss_train': average_epoch_loss_train
+    })
 
     time_taken_epoch = time.time() - st
     remain_time = time_taken_epoch * (args.max_epochs - 1 - epoch)
     m, s = divmod(remain_time, 60)
     h, m = divmod(m, 60)
     print("Remaining training time = %d hour %d minutes %d seconds" % (h, m, s))
-
-    average_epoch_loss_train = sum(epoch_loss) / len(epoch_loss)
 
     return average_epoch_loss_train, lr
 
