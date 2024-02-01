@@ -2,6 +2,11 @@ import torch
 
 
 def calculate_iou(outputs, targets, num_classes):
+    # One-hot encoding works only with the Long datatype.
+    # There is no computational penalization if it is already Long.
+    outputs = outputs.long()
+    targets = targets.long()
+
     # Convert predictions and targets to one-hot encoding
     outputs_one_hot = torch.nn.functional.one_hot(outputs, num_classes=num_classes)
     targets_one_hot = torch.nn.functional.one_hot(targets, num_classes=num_classes)

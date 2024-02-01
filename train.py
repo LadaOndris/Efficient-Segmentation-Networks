@@ -297,7 +297,7 @@ def train_model(args):
         # validation
         if epoch % args.eval_freq == 0 or epoch == (args.max_epochs - 1):
             epoches.append(epoch)
-            mIOU_val, per_class_iu = val(args, valLoader, model)
+            mIOU_val = val(args, valLoader, model)
             mIOU_val_list.append(mIOU_val)
 
             logger.log({
@@ -385,7 +385,6 @@ def train_epoch(args, train_loader, model, criterion, optimizer, epoch, logger):
         print('=====> epoch[%d/%d] iter: (%d/%d) \tcur_lr: %.6f loss: %.3f time:%.2f' % (epoch + 1, args.max_epochs,
                                                                                          iteration + 1, total_batches,
                                                                                          lr, loss.item(), time_taken))
-        # if iteration % 100 == 0:
         with torch.no_grad():
             outputs_argmax = torch.argmax(output, dim=1).detach()
             batch_iou, _ = calculate_iou(outputs_argmax, labels, args.classes)
@@ -397,11 +396,6 @@ def train_epoch(args, train_loader, model, criterion, optimizer, epoch, logger):
             'batch_loss_train': loss,
             'batch_mIOU_train': mIOU
         })
-        # else:
-        #
-        #     logger.log({
-        #         'batch_loss_train': loss
-        #     })
 
     average_iou = total_iou / len(train_loader)
     average_epoch_loss_train = sum(epoch_loss) / len(epoch_loss)
@@ -431,23 +425,24 @@ def val(args, val_loader, model):
     model.eval()
     total_batches = len(val_loader)
 
-    data_list = []
-    for i, (input, label, size, name) in enumerate(val_loader):
+    batch_ious = []
+    for i, (input, labels, size, name) in enumerate(val_loader):
         start_time = time.time()
         with torch.no_grad():
-            # input_var = Variable(input).cuda()
-            input_var = input.cuda()
-            output = model(input_var)
+            if args.cuda:
+                input = input.cuda()
+            output = model(input)
         time_taken = time.time() - start_time
         print("[%d/%d]  time: %.2f" % (i + 1, total_batches, time_taken))
-        output = output.cpu().data[0].numpy()
-        gt = np.asarray(label[0].numpy(), dtype=np.uint8)
-        output = output.transpose(1, 2, 0)
-        output = np.asarray(np.argmax(output, axis=2), dtype=np.uint8)
-        data_list.append([gt.flatten(), output.flatten()])
 
-    meanIoU, per_class_iu = get_iou(data_list, args.classes)
-    return meanIoU, per_class_iu
+        with torch.no_grad():
+            outputs_argmax = torch.argmax(output, dim=1).detach()
+            batch_iou, _ = calculate_iou(outputs_argmax, labels, args.classes)
+
+        batch_ious.append(batch_iou)
+
+    meanIoU = np.mean(np.array(batch_ious))
+    return meanIoU
 
 
 if __name__ == '__main__':
