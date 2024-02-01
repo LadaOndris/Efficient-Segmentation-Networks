@@ -431,6 +431,7 @@ def val(args, val_loader, model):
         with torch.no_grad():
             if args.cuda:
                 input = input.cuda()
+                labels = labels.cuda()
             output = model(input)
         time_taken = time.time() - start_time
         print("[%d/%d]  time: %.2f" % (i + 1, total_batches, time_taken))
