@@ -42,6 +42,7 @@ def calculate_iou_for_all(args, test_loader, model):
         if args.cuda:
             with torch.no_grad():
                 input_var = input.cuda()
+                label = label.cuda()
         else:
             input_var = input
 
