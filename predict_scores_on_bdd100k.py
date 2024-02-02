@@ -9,8 +9,8 @@ from torch.backends import cudnn
 
 from builders.dataset_builder import build_dataset_test
 from builders.model_builder import build_model
-from utils.metric.metric import get_iou
 from utils.utils import str_to_bool
+from utils.metric.iou import calculate_iou
 
 
 def parse_args():
@@ -24,6 +24,8 @@ def parse_args():
                         help="use the file to load the checkpoint for evaluating or testing ")
     parser.add_argument('--save_seg_dir', type=str, default="./result/",
                         help="saving path of prediction result")
+    parser.add_argument('--save_file_name', type=str, default='iou_results.csv',
+                        help='file name of the results')
     parser.add_argument('--cuda', type=str_to_bool, default=True, help="run on CPU or GPU")
     parser.add_argument("--gpus", default="0", type=str, help="gpu ids (default: 0)")
     args = parser.parse_args()
@@ -44,19 +46,18 @@ def calculate_iou_for_all(args, test_loader, model):
             input_var = input
 
         start_time = time.time()
-        output = model(input_var)
+        with torch.no_grad():
+            output_tensor = model(input_var)
         time_taken = time.time() - start_time
         print('[%d/%d]  time: %.2f' % (i + 1, total_batches, time_taken))
 
-        output = output.cpu().data[0].numpy()
-        gt = np.asarray(label[0].numpy(), dtype=np.uint8)
-        output = output.transpose(1, 2, 0)
-        output = np.asarray(np.argmax(output, axis=2), dtype=np.uint8)
+        iou, per_class_iu = calculate_iou(torch.argmax(output_tensor, dim=1).detach(), label, args.classes)
+        mean_iou = np.mean(iou)
 
-        iou, per_class_iu = get_iou([[gt.flatten(), output.flatten()]], args.classes)
+        iou_results.append({'image_path': name[0], 'iou_score': mean_iou})
 
-        iou_results.append({'image_path': name[0], 'iou_score': iou})
-        break
+        # if i == 5:
+        #    break
     return iou_results
 
 
@@ -75,6 +76,21 @@ def load_model(args):
         model = model.cuda()  # using GPU for inference
         cudnn.benchmark = True
 
+    """
+    device = torch.device('cpu')
+    for i in range(1, 9):
+        state_dict = torch.load(f'checkpoint/19895369/ENetbs8gpu1_train/model_{i}.pth', map_location=device)
+        model.load_state_dict(state_dict['model'])
+
+        start_time = time.time()
+        result = model(torch.ones([1, 3, 720, 1280]))
+        time_taken = time.time() - start_time
+        print('time: %.2f, mean: %.4f' % (time_taken, result.mean()))
+
+        del state_dict
+        del result
+    """
+
     if args.checkpoint:
         if os.path.isfile(args.checkpoint):
             print("=====> loading checkpoint '{}'".format(args.checkpoint))
@@ -89,8 +105,12 @@ def load_model(args):
             raise FileNotFoundError("no checkpoint found at '{}'".format(args.checkpoint))
     return model
 
-def write_results_to_csv(results, csv_filename):
-    with open(csv_filename, mode='w', newline='') as csv_file:
+
+def write_results_to_csv(results, csv_filepath):
+    dir_path = os.path.dirname(csv_filepath)
+    os.makedirs(dir_path, exist_ok=True)
+
+    with open(csv_filepath, mode='w', newline='') as csv_file:
         csv_writer = csv.writer(csv_file, delimiter=';')
         csv_writer.writerow(['Image Path', 'IoU Score'])
 
@@ -98,7 +118,7 @@ def write_results_to_csv(results, csv_filename):
             csv_writer.writerow([result['image_path'], result['iou_score']])
 
 
-def test_model(args):
+def predict_scores(args):
     check_cuda_available(args)
 
     model = load_model(args)
@@ -109,7 +129,7 @@ def test_model(args):
 
     iou_results = calculate_iou_for_all(args, testLoader, model)
 
-    csv_filename = os.path.join(args.save_seg_dir, 'iou_results.csv')
+    csv_filename = os.path.join(args.save_seg_dir, args.save_file_name)
     write_results_to_csv(iou_results, csv_filename)
     print("IoU results saved to:", csv_filename)
 
@@ -121,4 +141,4 @@ if __name__ == '__main__':
     assert (args.dataset == 'bdd100k')
 
     args.save_seg_dir = os.path.join(args.save_seg_dir, args.dataset, args.model)
-    test_model(args)
+    predict_scores(args)
