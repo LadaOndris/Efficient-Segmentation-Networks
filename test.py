@@ -10,6 +10,7 @@ from builders.dataset_builder import build_dataset_test
 from utils.utils import save_predict, str_to_bool
 from utils.metric.metric import get_iou
 from utils.convert_state import convert_state_dict
+from utils.metric.iou import calculate_iou
 
 
 def parse_args():
@@ -43,35 +44,47 @@ def test(args, test_loader, model):
     model.eval()
     total_batches = len(test_loader)
 
-    data_list = []
+    results = []
+
     for i, (input, label, size, name) in enumerate(test_loader):
         if args.cuda:
             with torch.no_grad():
                 input_var = input.cuda()
+                label = label.cuda()
         else:
             input_var = input
         start_time = time.time()
-        output = model(input_var)
+        with torch.no_grad():
+            output_tensor = model(input_var)
         if args.cuda:
             torch.cuda.synchronize()
         time_taken = time.time() - start_time
         print('[%d/%d]  time: %.2f' % (i + 1, total_batches, time_taken))
-        output = output.cpu().data[0].numpy()
-        gt = np.asarray(label[0].numpy(), dtype=np.uint8)
-        output = output.transpose(1, 2, 0)
-        output = np.asarray(np.argmax(output, axis=2), dtype=np.uint8)
-        data_list.append([gt.flatten(), output.flatten()])
+
+        pred_labels_tensor = torch.argmax(output_tensor, dim=1).detach()
+        iou, per_class_iu = calculate_iou(pred_labels_tensor, label, args.classes)
+
+        results.append({'image_path': name[0],
+                        'iou': np.mean(iou),
+                        'iou_per_class': np.mean(per_class_iu, axis=0)})
 
         # save the predicted image
         if args.save:
+            output = pred_labels_tensor.cpu().detach().numpy()[0]
+            gt = label.cpu().detach().numpy()[0]
+
             save_predict(output, gt, name[0], args.dataset, args.save_seg_dir,
                          output_grey=False, output_color=True, gt_color=True)
 
         if i == 5:
             break
 
-    meanIoU, per_class_iu = get_iou(data_list, args.classes)
-    return meanIoU, per_class_iu
+    iou_results = [res['iou'] for res in results]
+    ipc_results = [res['iou_per_class'] for res in results]
+
+    meanIoU = np.mean(iou_results)
+    meanIoU_per_class = np.mean(ipc_results, axis=0)
+    return meanIoU, meanIoU_per_class
 
 
 def test_model(args):

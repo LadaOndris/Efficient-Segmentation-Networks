@@ -11,6 +11,8 @@ camvid_palette = [128, 128, 128, 128, 0, 0, 192, 192, 128, 128, 64, 128, 60, 40,
                   64,
                   128, 64, 0, 128, 64, 64, 0, 0, 128, 192]
 
+bdd100k_palette = [219, 94, 86, 86, 211, 219, 0, 0, 0]
+
 zero_pad = 256 * 3 - len(cityscapes_palette)
 for i in range(zero_pad):
     cityscapes_palette.append(0)
@@ -20,20 +22,23 @@ for i in range(zero_pad):
 # for i in range(zero_pad):
 #     camvid_palette.append(0)
 
-def cityscapes_colorize_mask(mask):
+def apply_palette(mask, palette):
     # mask: numpy array of the mask
     new_mask = Image.fromarray(mask.astype(np.uint8)).convert('P')
-    new_mask.putpalette(cityscapes_palette)
-
+    new_mask.putpalette(palette, rawmode='RGB')
     return new_mask
+
+
+def cityscapes_colorize_mask(mask):
+    return apply_palette(mask, cityscapes_palette)
 
 
 def camvid_colorize_mask(mask):
-    # mask: numpy array of the mask
-    new_mask = Image.fromarray(mask.astype(np.uint8)).convert('P')
-    new_mask.putpalette(camvid_palette)
+    return apply_palette(mask, camvid_palette)
 
-    return new_mask
+
+def bdd100k_colorize_mask(mask):
+    return apply_palette(mask, bdd100k_palette)
 
 
 class VOCColorize(object):

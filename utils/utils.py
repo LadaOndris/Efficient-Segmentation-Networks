@@ -5,7 +5,7 @@ import numpy as np
 from PIL import Image
 import torch
 import torch.nn as nn
-from utils.colorize_mask import cityscapes_colorize_mask, camvid_colorize_mask
+from utils.colorize_mask import cityscapes_colorize_mask, camvid_colorize_mask, bdd100k_colorize_mask
 
 
 def __init_weight(feature, conv_init, norm_layer, bn_eps, bn_momentum,
@@ -51,16 +51,20 @@ def save_predict(output, gt, img_name, dataset, save_path, output_grey=False, ou
     if output_color:
         if dataset == 'cityscapes':
             output_color = cityscapes_colorize_mask(output)
-        elif dataset == 'camvid' or dataset == 'bdd100k':
+        elif dataset == 'camvid':
             output_color = camvid_colorize_mask(output)
+        elif dataset == 'bdd100k':
+            output_color = bdd100k_colorize_mask(output)
 
         output_color.save(os.path.join(save_path, img_name + '_color.png'))
 
     if gt_color:
         if dataset == 'cityscapes':
             gt_color = cityscapes_colorize_mask(gt)
-        elif dataset == 'camvid' or dataset == 'bdd100k':
+        elif dataset == 'camvid':
             gt_color = camvid_colorize_mask(gt)
+        elif dataset == 'bdd100k':
+            gt_color = bdd100k_colorize_mask(gt)
 
         gt_color.save(os.path.join(save_path, img_name + '_gt.png'))
 
